@@ -34,7 +34,7 @@ fn main() {
                 local_p.clone(),
                 Abstr::new(
                     local_q.clone(),
-                    Appl::new(Appl::new(local_p.clone(), local_q.clone()), local_p.clone()),
+                    Appl::new(Appl::new(local_p.clone(), local_p.clone()), local_q.clone()),
                 ),
             ),
         )
@@ -48,11 +48,75 @@ fn main() {
         ),
         GlobalRef::new(decl_false.clone()),
     ));
+    println!("\nQuery:");
     query.print(0, "");
+
+    let product = resolve(query);
+    println!("\nProduct:");
+    product.print(0, "");
 }
 
 fn resolve(query: FreeTerm) -> ProductTerm {
-    unimplemented!();
+    let appl = match query {
+        FreeTerm::Global(global) => return ProductTerm::Global(global),
+        FreeTerm::Abstraction(abstr) => return ProductTerm::Abstraction(abstr),
+        FreeTerm::Application(appl) => appl,
+    };
+
+    let Some(function_free) = FreeTerm::from_any(*appl.function) else {
+        unreachable!(
+            "application function (left-hand side) should have been beta-reduced to a free term"
+        );
+    };
+
+    let function_product = resolve(function_free);
+    let mut function_abstr = expand_global_recursive(function_product);
+
+    beta_reduce(
+        &function_abstr.parameter,
+        &mut *function_abstr.body,
+        &*appl.argument,
+    );
+
+    let Some(body_free) = FreeTerm::from_any(*function_abstr.body) else {
+        unreachable!("application body should have been beta-reduced to a free term");
+    };
+
+    resolve(body_free)
+}
+
+fn beta_reduce(parameter: &Local, body: &mut AnyTerm, argument: &AnyTerm) {
+    match body {
+        AnyTerm::Global(_) => (),
+        AnyTerm::Abstraction(abstr) => {
+            beta_reduce(parameter, &mut abstr.body, argument);
+        }
+        AnyTerm::Application(appl) => {
+            beta_reduce(parameter, &mut appl.function, argument);
+            beta_reduce(parameter, &mut appl.argument, argument);
+        }
+        AnyTerm::Local(local) => {
+            if local.id == parameter.id {
+                *body = argument.clone();
+            }
+        }
+    }
+}
+
+fn expand_global_recursive(mut product: ProductTerm) -> Abstr {
+    for _ in 0..100 {
+        match product {
+            ProductTerm::Global(global) => {
+                let Some(decl_product) = ProductTerm::from_free(global.value.term) else {
+                    unimplemented!("application as declaration: `T = A x`");
+                };
+                product = decl_product;
+            }
+            ProductTerm::Abstraction(abstr) => return abstr,
+        }
+    }
+    // TODO: Handle this without a loop limit
+    panic!("expansion limit reached. declaration reference cycle?");
 }
 
 type LocalRef = Local;
@@ -200,15 +264,44 @@ where
     }
 }
 
-impl Decl {
-    pub fn print(&self, _depth: usize, _prefix: &str) {
-        println!("[_] {}", self.name);
-        self.term.print(0, "");
+impl ProductTerm {
+    pub fn from_any(term: AnyTerm) -> Option<Self> {
+        Some(match term {
+            AnyTerm::Global(global) => Self::Global(global),
+            AnyTerm::Abstraction(abstr) => Self::Abstraction(abstr),
+            AnyTerm::Application(_) | AnyTerm::Local(_) => return None,
+        })
+    }
+
+    pub fn from_free(term: FreeTerm) -> Option<Self> {
+        Some(match term {
+            FreeTerm::Global(global) => Self::Global(global),
+            FreeTerm::Abstraction(abstr) => Self::Abstraction(abstr),
+            FreeTerm::Application(_) => return None,
+        })
+    }
+}
+
+impl FreeTerm {
+    pub fn from_any(term: AnyTerm) -> Option<Self> {
+        Some(match term {
+            AnyTerm::Global(global) => Self::Global(global),
+            AnyTerm::Abstraction(abstr) => Self::Abstraction(abstr),
+            AnyTerm::Application(appl) => Self::Application(appl),
+            AnyTerm::Local(_) => return None,
+        })
     }
 }
 
 trait Print {
     fn print(&self, depth: usize, prefix: &str);
+}
+
+impl Print for Decl {
+    fn print(&self, _depth: usize, _prefix: &str) {
+        println!("[_] {}", self.name);
+        self.term.print(0, "");
+    }
 }
 
 impl Print for ProductTerm {
