@@ -1,66 +1,104 @@
 fn main() {
-    let local_true_x = Local::new(10, "x");
-    let local_true_y = Local::new(11, "y");
-    let local_false_x = Local::new(20, "x");
-    let local_false_y = Local::new(21, "y");
-    let local_or_p = Local::new(30, "p");
-    let local_or_q = Local::new(31, "q");
-
-    let decl_true = Decl::new(
-        "T",
-        Abstr::new(
-            local_true_x.clone(),
-            Abstr::new(local_true_y.clone(), local_true_x.clone()),
-        ),
-    );
-    print_declaration(&decl_true);
-
-    let decl_false = Decl::new(
-        "F",
-        Abstr::new(
-            local_false_x.clone(),
-            Abstr::new(local_false_y.clone(), local_false_y.clone()),
-        ),
-    );
-    print_declaration(&decl_false);
-
-    let decl_or = Decl::new(
-        "|",
-        Abstr::new(
-            local_or_p.clone(),
+    let decl_true = {
+        let local_x = Local::new(10, "x");
+        let local_y = Local::new(11, "y");
+        Decl::new(
+            "T",
             Abstr::new(
-                local_or_q.clone(),
-                Appl::new(
-                    Appl::new(local_or_p.clone(), local_or_q.clone()),
-                    local_or_p.clone(),
+                local_x.clone(),
+                Abstr::new(local_y.clone(), local_x.clone()),
+            ),
+        )
+    };
+    decl_true.print(0, "");
+
+    let decl_false = {
+        let local_x = Local::new(20, "x");
+        let local_y = Local::new(21, "y");
+        Decl::new(
+            "F",
+            Abstr::new(
+                local_x.clone(),
+                Abstr::new(local_y.clone(), local_y.clone()),
+            ),
+        )
+    };
+    decl_false.print(0, "");
+
+    let decl_or = {
+        let local_p = Local::new(30, "p");
+        let local_q = Local::new(31, "q");
+        Decl::new(
+            "|",
+            Abstr::new(
+                local_p.clone(),
+                Abstr::new(
+                    local_q.clone(),
+                    Appl::new(Appl::new(local_p.clone(), local_q.clone()), local_p.clone()),
                 ),
             ),
+        )
+    };
+    decl_or.print(0, "");
+
+    let query = FreeTerm::from(Appl::new(
+        Appl::new(
+            GlobalRef::new(decl_or.clone()),
+            GlobalRef::new(decl_true.clone()),
         ),
-    );
-    print_declaration(&decl_or);
-
-    let query = Term::new(Appl::new(Appl::new(decl_or, decl_true), decl_false));
-    println!("Query:");
-    print_term(&query, 0, "");
-
-    let result = evaluate_query(query);
-    println!("Result:");
-    print_term(&result, 0, "");
+        GlobalRef::new(decl_false.clone()),
+    ));
+    query.print(0, "");
 }
 
-fn evaluate_query(query: Term) -> Term {
+fn resolve(query: FreeTerm) -> ProductTerm {
     unimplemented!();
 }
 
-struct Term {
-    value: TermKind,
+type LocalRef = Local;
+type AnyTermRef = Box<AnyTerm>;
+
+#[derive(Clone)]
+struct GlobalRef {
+    value: Box<Decl>,
 }
 
-enum TermKind {
-    Local(Local),
-    Global(Decl),
+#[derive(Clone)]
+struct Decl {
+    name: String,
+    term: FreeTerm,
+}
+
+enum ProductTerm {
+    Global(GlobalRef),
+    Abstraction(Abstr),
+}
+
+#[derive(Clone)]
+enum FreeTerm {
+    Global(GlobalRef),
     Abstraction(Abstr),
     Application(Appl),
+}
+
+#[derive(Clone)]
+enum AnyTerm {
+    Global(GlobalRef),
+    Abstraction(Abstr),
+    Application(Appl),
+    Local(LocalRef),
+}
+
+#[derive(Clone)]
+struct Abstr {
+    parameter: Local,
+    body: AnyTermRef,
+}
+
+#[derive(Clone)]
+struct Appl {
+    function: AnyTermRef,
+    argument: AnyTermRef,
 }
 
 #[derive(Clone)]
@@ -69,49 +107,41 @@ struct Local {
     name: String,
 }
 
-struct Decl {
-    name: String,
-    term: Box<Term>,
-}
-
-struct Abstr {
-    parameter: Local,
-    body: Box<Term>,
-}
-
-struct Appl {
-    function: Box<Term>,
-    argument: Box<Term>,
-}
-
-impl Into<TermKind> for Local {
-    fn into(self) -> TermKind {
-        TermKind::Local(self)
-    }
-}
-impl Into<TermKind> for Decl {
-    fn into(self) -> TermKind {
-        TermKind::Global(self)
-    }
-}
-impl Into<TermKind> for Abstr {
-    fn into(self) -> TermKind {
-        TermKind::Abstraction(self)
-    }
-}
-impl Into<TermKind> for Appl {
-    fn into(self) -> TermKind {
-        TermKind::Application(self)
-    }
-}
-
-impl Term {
-    pub fn new(value: impl Into<TermKind>) -> Self {
+impl GlobalRef {
+    pub fn new(decl: Decl) -> Self {
         Self {
-            value: value.into(),
+            value: Box::new(decl),
         }
     }
 }
+
+impl Decl {
+    pub fn new(name: impl Into<String>, term: impl Into<FreeTerm>) -> Self {
+        Self {
+            name: name.into(),
+            term: term.into(),
+        }
+    }
+}
+
+impl Abstr {
+    pub fn new(parameter: Local, body: impl Into<AnyTerm>) -> Self {
+        Self {
+            parameter,
+            body: Box::new(body.into()),
+        }
+    }
+}
+
+impl Appl {
+    pub fn new(function: impl Into<AnyTerm>, argument: impl Into<AnyTerm>) -> Self {
+        Self {
+            function: Box::new(function.into()),
+            argument: Box::new(argument.into()),
+        }
+    }
+}
+
 impl Local {
     pub fn new(id: usize, name: impl Into<String>) -> Self {
         Self {
@@ -120,59 +150,123 @@ impl Local {
         }
     }
 }
+
+impl From<GlobalRef> for ProductTerm {
+    fn from(value: GlobalRef) -> Self {
+        ProductTerm::Global(value)
+    }
+}
+
+impl From<Abstr> for ProductTerm {
+    fn from(value: Abstr) -> Self {
+        ProductTerm::Abstraction(value)
+    }
+}
+
+impl From<Appl> for FreeTerm {
+    fn from(value: Appl) -> Self {
+        FreeTerm::Application(value)
+    }
+}
+
+impl From<Local> for AnyTerm {
+    fn from(value: Local) -> Self {
+        Self::Local(value)
+    }
+}
+
+impl<T> From<T> for FreeTerm
+where
+    T: Into<ProductTerm>,
+{
+    fn from(value: T) -> Self {
+        match value.into() {
+            ProductTerm::Global(global) => Self::Global(global),
+            ProductTerm::Abstraction(abstr) => Self::Abstraction(abstr),
+        }
+    }
+}
+
+impl<T> From<T> for AnyTerm
+where
+    T: Into<FreeTerm>,
+{
+    fn from(value: T) -> Self {
+        match value.into() {
+            FreeTerm::Global(global) => Self::Global(global),
+            FreeTerm::Abstraction(abstr) => Self::Abstraction(abstr),
+            FreeTerm::Application(appl) => Self::Application(appl),
+        }
+    }
+}
+
 impl Decl {
-    pub fn new(name: impl Into<String>, term: impl Into<TermKind>) -> Self {
-        Self {
-            name: name.into(),
-            term: Box::new(Term::new(term.into())),
-        }
+    pub fn print(&self, _depth: usize, _prefix: &str) {
+        println!("[_] {}", self.name);
+        self.term.print(0, "");
     }
 }
-impl Abstr {
-    pub fn new(parameter: Local, body: impl Into<TermKind>) -> Self {
-        Self {
-            parameter,
-            body: Box::new(Term::new(body)),
-        }
-    }
+
+trait Print {
+    fn print(&self, depth: usize, prefix: &str);
 }
-impl Appl {
-    pub fn new(function: impl Into<TermKind>, argument: impl Into<TermKind>) -> Self {
-        Self {
-            function: Box::new(Term::new(function)),
-            argument: Box::new(Term::new(argument)),
+
+impl Print for ProductTerm {
+    fn print(&self, depth: usize, prefix: &str) {
+        match self {
+            Self::Global(global) => global.print(depth, prefix),
+            Self::Abstraction(abstr) => abstr.print(depth, prefix),
         }
     }
 }
 
-fn print_declaration(decl: &Decl) {
-    println!("[_] {}", decl.name);
-    print_term(&decl.term, 0, "");
+impl Print for FreeTerm {
+    fn print(&self, depth: usize, prefix: &str) {
+        match self {
+            Self::Global(global) => global.print(depth, prefix),
+            Self::Abstraction(abstr) => abstr.print(depth, prefix),
+            Self::Application(appl) => appl.print(depth, prefix),
+        }
+    }
 }
 
-fn print_term(term: &Term, depth: usize, prefix: &str) {
-    match &term.value {
-        TermKind::Local(local) => {
-            print_label(depth, prefix, "local");
-            print_local(local);
+impl Print for AnyTerm {
+    fn print(&self, depth: usize, prefix: &str) {
+        match self {
+            Self::Global(global) => global.print(depth, prefix),
+            Self::Abstraction(abstr) => abstr.print(depth, prefix),
+            Self::Application(appl) => appl.print(depth, prefix),
+            Self::Local(local) => {
+                print_label(depth, prefix, "local");
+                print_local(local);
+            }
         }
-        TermKind::Global(global) => {
-            print_label(depth, prefix, "global");
-            println!("[_] `{}` ...", global.name);
-        }
-        TermKind::Abstraction(abstr) => {
-            print_label(depth, prefix, "abstraction");
-            println!();
-            print_label(depth + 1, "parameter", "");
-            print_local(&abstr.parameter);
-            print_term(&abstr.body, depth + 1, "body");
-        }
-        TermKind::Application(appl) => {
-            print_label(depth, prefix, "application");
-            println!();
-            print_term(&appl.function, depth + 1, "function");
-            print_term(&appl.argument, depth + 1, "argument");
-        }
+    }
+}
+
+impl Print for GlobalRef {
+    fn print(&self, depth: usize, prefix: &str) {
+        print_label(depth, prefix, "global");
+        println!("[_] `{}` [...]", self.value.name);
+    }
+}
+
+impl Print for Abstr {
+    fn print(&self, depth: usize, prefix: &str) {
+        print_label(depth, prefix, "abstraction");
+        println!();
+        print_label(depth + 1, "parameter", "");
+        print_local(&self.parameter);
+        self.body.print(depth + 1, "body");
+    }
+}
+
+impl Print for Appl {
+    fn print(&self, depth: usize, prefix: &str) {
+        print_label(depth, prefix, "application");
+        println!();
+        self.function.print(depth + 1, "function");
+        self.argument.print(depth + 1, "argument");
     }
 }
 
